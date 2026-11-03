@@ -20,19 +20,31 @@ func main() {
 
 	input := bufio.NewScanner(os.Stdin)
 
-	fmt.Println("Escreva o seu nome para entrar no chat")
-	if !input.Scan() {
-		if err := input.Err(); err != nil {
-			fmt.Printf("Erro ao ler nome: %v\n", err)
+	var user string
+	for {
+		fmt.Println("Escreva o seu nome para entrar no chat")
+		if !input.Scan() {
+			if err := input.Err(); err != nil {
+				fmt.Printf("Erro ao ler nome: %v\n", err)
+			}
+			return
 		}
-		return
+		user = input.Text()
+		if err := message.ValidateSenderName(user); err != nil {
+			fmt.Printf("Nome inválido: %v\n", err)
+			continue
+		}
+		break
 	}
-	user := input.Text()
 
 	go func() {
 		serverScanner := bufio.NewScanner(serverConnection)
 		for serverScanner.Scan() {
-			serverMessage, _ := message.FromJSONString(serverScanner.Text())
+			serverMessage, err := message.FromJSONString(serverScanner.Text())
+			if err != nil {
+				fmt.Printf("Mensagem recebida inválida: %v\n", err)
+				continue
+			}
 			fmt.Printf("[%s]: %s", serverMessage.SenderName, serverMessage.MessageText)
 		}
 	}()
@@ -43,6 +55,10 @@ func main() {
 		msg := message.Message{
 			SenderName:  user,
 			MessageText: input.Text(),
+		}
+		if err := msg.Validate(); err != nil {
+			fmt.Printf("Mensagem inválida: %v\n", err)
+			continue
 		}
 
 		if _, err := serverConnection.Write([]byte(msg.ToJSONString())); err != nil {
