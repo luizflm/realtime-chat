@@ -3,8 +3,6 @@ package message
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 )
 
 const (
@@ -17,27 +15,11 @@ type Message struct {
 	MessageText string
 }
 
-func ValidateSenderName(name string) error {
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("nome é obrigatório")
-	}
-	if utf8.RuneCountInString(name) > MaxSenderNameLength {
-		return fmt.Errorf("nome deve ter no máximo %d caracteres", MaxSenderNameLength)
-	}
-	return nil
-}
-
 func (m Message) Validate() error {
 	if err := ValidateSenderName(m.SenderName); err != nil {
 		return err
 	}
-	if strings.TrimSpace(m.MessageText) == "" {
-		return fmt.Errorf("o texto da mensagem é obrigatório")
-	}
-	if utf8.RuneCountInString(m.MessageText) > MaxMessageTextLength {
-		return fmt.Errorf("o texto da mensagem deve ter no máximo %d caracteres", MaxMessageTextLength)
-	}
-	return nil
+	return ValidateMessageText(m.MessageText)
 }
 
 func FromJSONString(data string) (Message, error) {

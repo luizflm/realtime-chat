@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 
@@ -10,64 +12,78 @@ import (
 )
 
 func main() {
-	serverConnection, err := net.Dial("tcp", "localhost:8080")
+	connection, err := net.Dial("tcp", "localhost:8080")
 	if err != nil {
 		fmt.Println("Erro ao se conectar ao servidor")
 		return
 	}
-
-	defer serverConnection.Close()
+	defer connection.Close()
 
 	input := bufio.NewScanner(os.Stdin)
+	name, err := readSenderName(input)
+	if err != nil {
+		if err != io.EOF {
+			fmt.Printf("Erro ao ler nome: %v\n", err)
+		}
+		return
+	}
 
-	var user string
+	encoder := json.NewEncoder(connection)
+	if err := encoder.Encode(message.JoinRequest{SenderName: name}); err != nil {
+		fmt.Printf("Erro ao entrar no chat: %v\n", err)
+		return
+	}
+
+	go receiveMessages(connection)
+	if err := sendMessages(input, encoder); err != nil {
+		fmt.Println(err)
+	}
+}
+
+func readSenderName(input *bufio.Scanner) (string, error) {
 	for {
 		fmt.Println("Escreva o seu nome para entrar no chat")
 		if !input.Scan() {
 			if err := input.Err(); err != nil {
-				fmt.Printf("Erro ao ler nome: %v\n", err)
+				return "", err
 			}
-			return
+			return "", io.EOF
 		}
-		user = input.Text()
-		if err := message.ValidateSenderName(user); err != nil {
+		name := input.Text()
+		if err := message.ValidateSenderName(name); err != nil {
 			fmt.Printf("Nome inválido: %v\n", err)
 			continue
 		}
-		break
+		return name, nil
 	}
+}
 
-	go func() {
-		serverScanner := bufio.NewScanner(serverConnection)
-		for serverScanner.Scan() {
-			serverMessage, err := message.FromJSONString(serverScanner.Text())
-			if err != nil {
-				fmt.Printf("Mensagem recebida inválida: %v\n", err)
-				continue
-			}
-			fmt.Printf("[%s]: %s", serverMessage.SenderName, serverMessage.MessageText)
+func receiveMessages(connection io.Reader) {
+	scanner := bufio.NewScanner(connection)
+	for scanner.Scan() {
+		incoming, err := message.FromJSONString(scanner.Text())
+		if err != nil {
+			fmt.Printf("Mensagem recebida inválida: %v\n", err)
+			continue
 		}
-	}()
+		fmt.Printf("[%s]: %s", incoming.SenderName, incoming.MessageText)
+	}
+}
 
+func sendMessages(input *bufio.Scanner, encoder *json.Encoder) error {
 	fmt.Println("Digite sua mensagem:")
-
 	for input.Scan() {
-		msg := message.Message{
-			SenderName:  user,
-			MessageText: input.Text(),
-		}
-		if err := msg.Validate(); err != nil {
+		request := message.ChatRequest{MessageText: input.Text()}
+		if err := request.Validate(); err != nil {
 			fmt.Printf("Mensagem inválida: %v\n", err)
 			continue
 		}
-
-		if _, err := serverConnection.Write([]byte(msg.ToJSONString())); err != nil {
-			fmt.Printf("Erro ao enviar mensagem: %v\n", err)
-			return
+		if err := encoder.Encode(request); err != nil {
+			return fmt.Errorf("Erro ao enviar mensagem: %w", err)
 		}
 	}
-
 	if err := input.Err(); err != nil {
-		fmt.Printf("Erro ao ler entrada: %v\n", err)
+		return fmt.Errorf("Erro ao ler entrada: %w", err)
 	}
+	return nil
 }
