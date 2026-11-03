@@ -8,7 +8,10 @@ import (
 	"net"
 	"os"
 
+	"realtime-chat/cmd/client/ui"
 	"realtime-chat/internal/message"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func main() {
@@ -34,9 +37,22 @@ func main() {
 		return
 	}
 
-	go receiveMessages(connection)
-	if err := sendMessages(input, encoder); err != nil {
-		fmt.Println(err)
+	program := tea.NewProgram(ui.InitModel(connection, name))
+
+	go func() {
+		scanner := bufio.NewScanner(connection)
+		for scanner.Scan() {
+			incoming, err := message.FromJSONString(scanner.Text())
+			if err != nil {
+				continue
+			}
+			program.Send(incoming)
+		}
+		program.Quit()
+	}()
+
+	if _, err := program.Run(); err != nil {
+		fmt.Printf("Erro na interface: %v\n", err)
 	}
 }
 
@@ -56,34 +72,4 @@ func readSenderName(input *bufio.Scanner) (string, error) {
 		}
 		return name, nil
 	}
-}
-
-func receiveMessages(connection io.Reader) {
-	scanner := bufio.NewScanner(connection)
-	for scanner.Scan() {
-		incoming, err := message.FromJSONString(scanner.Text())
-		if err != nil {
-			fmt.Printf("Mensagem recebida inválida: %v\n", err)
-			continue
-		}
-		fmt.Printf("[%s]: %s", incoming.SenderName, incoming.MessageText)
-	}
-}
-
-func sendMessages(input *bufio.Scanner, encoder *json.Encoder) error {
-	fmt.Println("Digite sua mensagem:")
-	for input.Scan() {
-		request := message.ChatRequest{MessageText: input.Text()}
-		if err := request.Validate(); err != nil {
-			fmt.Printf("Mensagem inválida: %v\n", err)
-			continue
-		}
-		if err := encoder.Encode(request); err != nil {
-			return fmt.Errorf("Erro ao enviar mensagem: %w", err)
-		}
-	}
-	if err := input.Err(); err != nil {
-		return fmt.Errorf("Erro ao ler entrada: %w", err)
-	}
-	return nil
 }
